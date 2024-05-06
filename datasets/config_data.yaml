@@ -1,0 +1,10 @@
+url:
+  IP:
+    original: "https://www.ehu.eus/ccwintco/uploads/2/22/Indian_pines.mat"
+    corrected: "https://www.ehu.eus/ccwintco/uploads/6/67/Indian_pines_corrected.mat"
+  KSC:
+    original: "http://www.ehu.es/ccwintco/uploads/2/26/KSC.mat"
+  PU:
+    original: "https://www.ehu.eus/ccwintco/uploads/e/ee/PaviaU.mat"
+else:
+
