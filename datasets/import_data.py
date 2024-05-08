@@ -33,5 +33,19 @@ def get_data():
         download_file(image_url, filename)
 
 
+def get_labels():
+    with open("config_data.yaml", "r") as file:
+        config = yaml.safe_load(file)
+
+    base_url = config["url"]
+    sources = ["IP", "PU", "KSC"]
+
+    for source in sources:
+        file_url = base_url[source]["ground_truth"]
+        filename = f"{source}_ground_truth.mat"
+        download_file(file_url, filename)
+
+
 if __name__ == "__main__":
     get_data()
+    get_labels()

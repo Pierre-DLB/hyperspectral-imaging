@@ -1,0 +1,15 @@
+data:
+  IP:
+    img: "datasets/IP_original.mat"
+    labels: "datasets/IP_ground_truth.mat"
+  KSC:
+    img: "datasets/KSC_original.mat"
+    labels: "datasets/KSC_ground_truth.mat"
+  PU:
+    img: "datasets/PU_original.mat"
+    labels: "datasets/PU_ground_truth.mat"
+
+
+
+
+
