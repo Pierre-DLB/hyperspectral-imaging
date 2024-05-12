@@ -8,6 +8,13 @@ data:
   PU:
     img: "datasets/PU_original.mat"
     labels: "datasets/PU_ground_truth.mat"
+parameters:
+  p : 4, # number of PC in PCA
+  L : 4, # network depth
+  k : 50, # number of patches
+  w : 15, # size of patches
+  delta_s : 50, # spatial standard deviation
+  delta_r : 0.5 # Range standard deviation
 
 
 
