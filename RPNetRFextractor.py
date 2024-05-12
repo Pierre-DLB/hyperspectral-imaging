@@ -1,58 +1,64 @@
 import utils as u
 import torch
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
-from torchvision.transforms import Compose, ToTensor
 from sklearn.preprocessing import StandardScaler
 
 from sklearn.decomposition import PCA
 
 from torch import nn
-from sklearn.preprocessing import StandardScaler
-
-from sklearn.decomposition import PCA
+import yaml
 
 configuration = yaml.safe_load(open("config.yaml"))
 data_path = configuration["data"]
 parameters = configuration["parameters"]
 
 
-def RPNet_extractor(X, y, params=None):
-    """Feature extraction using RPNet method"""
-
-    if params is None:
-        params = parameters
-
+def one_extraction(A, params=parameters):
+    """One extraction of features in the RPNet method. A is in the shape (long, larg, prof)"""
+    device = "cuda" if torch.cuda.is_available() else "mps"
+    long, larg, _ = A.shape
     p = params["p"]  # number of PC in PCA
-    L = params["L"]  # network depth
     k = params["k"]  # number of patches
     w = params["w"]  # size of patches
+
+    scaler = StandardScaler()
+    pca_white = PCA(n_components=p, whiten=True)
+
+    A = A.reshape(long * larg, -1)
+    A = scaler.fit_transform(A)
+    feat_map = pca_white.fit_transform(A).reshape(long, larg, p)  # feature map: PCA(X)
+    patches = u.extract_tiles(feat_map, k, w)
+
+    tensor_patches = torch.from_numpy(patches).to(torch.float32).to(device).unsqueeze(1)
+    tensor_map = torch.from_numpy(feat_map).to(torch.float32).to(device).unsqueeze(0)
+
+    res = nn.functional.conv3d(
+        tensor_map,
+        weight=tensor_patches,
+        bias=None,
+        padding=(w // 2, w // 2, 0),
+        dilation=1,
+        groups=1,
+    )
+    # reshape the tensor to apply the next PCA
+    extracted_map = res.squeeze(0).squeeze(-1).permute(1, 2, 0).to("cpu")
+
+    return extracted_map
+
+
+def RPNet_extractor(X, params=parameters):
+    """Feature extraction using RPNet method"""
+
+    L = params["L"]  # network depth
+    k = params["k"]  # number of patches
     long, larg, _ = X.shape
-
+    extracted_map = X.copy()
     feature_maps = []
-    # L times feature extraction with convolutionn filters
+
     for i in range(L):
-        # Scale and center the data, then apply pca to it
-        scaler = StandardScaler()
-        pca_white = PCA(n_components=p, whiten=True)
-        A = X.reshape(long * larg, -1)
-        A = scaler.fit_transform(A)
-        feat_map = pca_white.fit_transform(A).reshape(long, larg, p)
-
-        # extract patches:
-        patches = u.extract_tiles(feat_map, k, w)
-        patches_tensor = torch.from_numpy(patches).unsqueeze(1)
-        res = nn.functional.conv3d(
-            torch.from_numpy(feat_map).to(torch.float32).unsqueeze(0),
-            weight=patches_tensor.to(torch.float32),
-            bias=None,
-            padding=(w // 2, w // 2, 0),
-            dilation=1,
-            groups=1,
-        )
-
-        extracted_map = res.squeeze(0).squeeze(-1).permute(1, 2, 0)
-
+        # input : X, or last extracted map (long, larg, k), output : new extracted map (long, larg, k) also appended to feature maps
+        extracted_map = one_extraction(extracted_map, params)
+        print(f"Conv {i+1} done, shape : {extracted_map.shape}")
         feature_maps.append(extracted_map)
 
     feature_maps_tensor = torch.cat(feature_maps, dim=2)
@@ -72,7 +78,7 @@ def RPNet_extractor(X, y, params=None):
     return torch.from_numpy(extracted_maps.reshape(long, larg, -1)).to(torch.float32)
 
 
-def RF_horizontal(tensor, delta_s=parameters["delta_s"], delta_r=parameters["delta_r"]):
+def RF_horizontal(tensor, params=parameters):
     """Recursive filtering in the horizontal direction
     Paper formulas :
         J[n] = (1-a**d)*I[n] + a**d*J[n-1]
@@ -82,6 +88,8 @@ def RF_horizontal(tensor, delta_s=parameters["delta_s"], delta_r=parameters["del
             i.e. d = 1+ delta_s/delta_r* |I[n] - I[n-1]| (as x_n-1 and x_n are adjacent pixels)
     Return J, the filtered tensor
     """
+    delta_s, delta_r = params["delta_s"], params["delta_r"]
+
     if len(tensor.shape) == 2:
         tensor = tensor.unsqueeze(2)
     _, larg, _ = tensor.shape
@@ -98,10 +106,10 @@ def RF_horizontal(tensor, delta_s=parameters["delta_s"], delta_r=parameters["del
             filtered_tensor[:, n, :] = (1 - a_d) * tensor[
                 :, n, :
             ] + a_d * filtered_tensor[:, n - 1, :]
-    return torch.tensor(filtered_tensor)
+    return torch.tensor(filtered_tensor).to(torch.float32)
 
 
-def RF_vertical(tensor, delta_s=parameters["delta_s"], delta_r=parameters["delta_r"]):
+def RF_vertical(tensor, params=parameters):
     """Recursive filtering in the horizontal direction
     Paper formulas :
         J[n] = (1-a**d)*I[n] + a**d*J[n-1]
@@ -111,6 +119,8 @@ def RF_vertical(tensor, delta_s=parameters["delta_s"], delta_r=parameters["delta
             i.e. d = 1+ delta_s/delta_r* |I[n] - I[n-1]| (as x_n-1 and x_n are adjacent pixels)
     Return J, the filtered tensor
     """
+
+    delta_s, delta_r = params["delta_s"], params["delta_r"]
     if len(tensor.shape) == 2:
         tensor = tensor.unsqueeze(2)
     long, _, _ = tensor.shape
@@ -127,29 +137,29 @@ def RF_vertical(tensor, delta_s=parameters["delta_s"], delta_r=parameters["delta
             filtered_tensor[n, :, :] = (1 - a_d) * tensor[
                 n, :, :
             ] + a_d * filtered_tensor[n - 1, :, :]
-    return torch.tensor(filtered_tensor)
+    return torch.tensor(filtered_tensor).to(torch.float32)
 
 
-def RF(tensor, delta_s=parameters["delta_s"], delta_r=parameters["delta_r"]):
+def RF(tensor, params=parameters):
     """Applies 3 passes of recursive filtering, as mentionned in the paper : 3 vertical and 3 horizontal.
     Orignial paper on this recommends to modify the value of deltas between iterations,
     but replicated paper doesn't so not done here.
 
     """
-
-    tensor1h = RF_horizontal(tensor, delta_s, delta_r)
-    tensor1v = RF_vertical(tensor1h, delta_s, delta_r)
-    tensor2h = RF_horizontal(tensor1v, delta_s, delta_r)
-    tensor2v = RF_vertical(tensor2h, delta_s, delta_r)
-    tensor3h = RF_horizontal(tensor2v, delta_s, delta_r)
-    tensor3v = RF_vertical(tensor3h, delta_s, delta_r)
+    tensor1h = RF_horizontal(tensor, params)
+    tensor1v = RF_vertical(tensor1h, params)
+    tensor2h = RF_horizontal(tensor1v, params)
+    tensor2v = RF_vertical(tensor2h, params)
+    tensor3h = RF_horizontal(tensor2v, params)
+    tensor3v = RF_vertical(tensor3h, params)
     return tensor3v
 
 
-def RPNet_RF(X, y, params=parameters):
+def RPNet_RF(X, params=parameters):
     """Full RPNet-RF method, from feature extraction to recursive filtering"""
 
-    tensor = RPNet_extractor(X, y, params)
-    filtered_tensor = RF(tensor, params["delta_s"], params["delta_r"])
+    tensor = RPNet_extractor(X, params)
+    filtered_tensor = RF(tensor, params)
 
-    return torch.tensor(X).cat(filtered_tensor, dim=2)
+    # return torch.tensor(X).to(torch.float32), filtered_tensor
+    return torch.cat([torch.tensor(X).to(torch.float32), filtered_tensor], dim=2)

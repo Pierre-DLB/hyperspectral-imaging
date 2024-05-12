@@ -25,7 +25,13 @@ def extract_random_pixel(X, label):
 
 
 def balanced_split(y, test_size=0.2):
-    """Returns the mask for a balanced split train-test"""
+    """Returns the mask for a balanced split train-test
+    y : labels
+    test_size : proportion of the test set
+
+    returns : train_mask, test_mask, unsup_mask
+
+    """
     classes = np.unique(y)
     unsup_mask = y == 0  # some pixels are not that usefull : did not get any label
 
