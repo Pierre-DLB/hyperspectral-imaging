@@ -24,7 +24,7 @@ def extract_random_pixel(X, label):
     return (X[x, y, :], label[x, y])
 
 
-def balanced_split(y, test_size=0.2):
+def balanced_split(y, test_size=0.2, seed=42):
     """Returns the mask for a balanced split train-test
     y : labels
     test_size : proportion of the test set
@@ -42,7 +42,7 @@ def balanced_split(y, test_size=0.2):
         if i > 0:
             col, rows = np.where(y == i)
             col_train, col_test, row_train, row_test = train_test_split(
-                col, rows, test_size=test_size
+                col, rows, test_size=test_size, random_state=seed
             )
             train_mask[col_train, row_train] = True
             test_mask[col_test, row_test] = True
@@ -62,7 +62,7 @@ def extract_tiles(X, number, w):
     return np.array(X_patches)
 
 
-def random_split(y, test_size=0.2):
+def random_split(y, test_size=0.2, seed=42):
     """Returns the mask for a balanced split train-test
     y : labels
     test_size : proportion of the test set
@@ -77,15 +77,18 @@ def random_split(y, test_size=0.2):
 
     col, rows = np.where(y != 0)
     col_train, col_test, row_train, row_test = train_test_split(
-        col, rows, test_size=test_size
+        col,
+        rows,
+        test_size=test_size,
+        random_state=seed,
     )
     train_mask[col_train, row_train] = True
     test_mask[col_test, row_test] = True
     return train_mask, test_mask, unsup_mask
 
 
-def data_split(y, test_size=0.2, style="random"):
+def data_split(y, test_size=0.2, style="random", seed=42):
     if style == "balanced":
-        return balanced_split(y, test_size)
+        return balanced_split(y, test_size, seed)
     else:
-        return random_split(y, test_size)
+        return random_split(y, test_size, seed)
